@@ -1,9 +1,10 @@
 local M = {}
 
 M.config = {
-	socket_path = nil, -- auto-discovered via tdf --socket-path <pdf>
+	socket_path = nil,
 	pdf_path = nil,
 	viewer_cmd = "tdf-sync",
+	split = false, -- true = cmux split, false = cmux tab
 }
 
 function M.setup(opts)
@@ -15,8 +16,13 @@ function M.setup(opts)
 
 	vim.api.nvim_create_user_command("TdfOpen", function(args)
 		local pdf = args.args ~= "" and args.args or nil
-		M.open_in_tmux(pdf)
-	end, { nargs = "?", complete = "file", desc = "Open PDF in tdf-sync (tmux pane)" })
+		M.open(pdf)
+	end, { nargs = "?", complete = "file", desc = "Open PDF in tdf-sync (cmux tab)" })
+
+	vim.api.nvim_create_user_command("TdfSplit", function(args)
+		local pdf = args.args ~= "" and args.args or nil
+		M.open(pdf, true)
+	end, { nargs = "?", complete = "file", desc = "Open PDF in tdf-sync (cmux split)" })
 end
 
 --- Auto-detect the PDF path from the current .tex file
@@ -27,13 +33,6 @@ local function detect_pdf()
 	local pdf = tex:gsub("%.tex$", ".pdf")
 	if vim.fn.filereadable(pdf) == 1 then
 		return pdf
-	end
-	-- Try looking in the same directory for any .pdf matching the basename
-	local dir = vim.fn.fnamemodify(tex, ":h")
-	local stem = vim.fn.fnamemodify(tex, ":t:r")
-	local candidate = dir .. "/" .. stem .. ".pdf"
-	if vim.fn.filereadable(candidate) == 1 then
-		return candidate
 	end
 	return nil
 end
@@ -53,7 +52,7 @@ end
 function M.forward_search()
 	local pdf = M.config.pdf_path or detect_pdf()
 	if not pdf then
-		vim.notify("tdf-synctex: no PDF found (compile first or set pdf_path)", vim.log.levels.ERROR)
+		vim.notify("tdf-synctex: no PDF found (compile first)", vim.log.levels.ERROR)
 		return
 	end
 	M.config.pdf_path = pdf
@@ -82,10 +81,10 @@ function M.forward_search()
 	})
 end
 
---- Open the PDF in tdf-sync in a new tmux pane (right split)
---- Ctrl+click in the viewer will jump back to Neovim via nvr
----@param pdf string|nil path to the PDF file (auto-detected if nil)
-function M.open_in_tmux(pdf)
+--- Open the PDF in tdf-sync via cmux (new tab or split)
+---@param pdf string|nil path to the PDF (auto-detected if nil)
+---@param split boolean|nil true for right split, false/nil for new tab
+function M.open(pdf, split)
 	pdf = pdf or M.config.pdf_path or detect_pdf()
 	if not pdf then
 		vim.notify("tdf-synctex: no PDF found", vim.log.levels.ERROR)
@@ -93,20 +92,11 @@ function M.open_in_tmux(pdf)
 	end
 	M.config.pdf_path = pdf
 
-	local servername = vim.v.servername
-	local inverse_cmd = string.format(
-		"nvr --servername %s --remote-silent +{line} {file}",
-		servername
-	)
-
-	-- Launch in a tmux split-pane to the right (40% width)
-	local tmux_cmd = string.format(
-		"tmux split-window -h -l 40%% '%s --inverse-cmd %s %s'",
-		M.config.viewer_cmd,
-		vim.fn.shellescape(inverse_cmd),
-		vim.fn.shellescape(pdf)
-	)
-	vim.fn.system(tmux_cmd)
+	local args = { "tdf-open", pdf, "--nvim-server", vim.v.servername }
+	if split or M.config.split then
+		table.insert(args, "--split")
+	end
+	vim.fn.system(args)
 end
 
 return M
