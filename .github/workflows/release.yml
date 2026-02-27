@@ -18,7 +18,7 @@ jobs:
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: pdftui-macos-arm64
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
             artifact: pdftui-macos-x86_64
           - os: ubuntu-latest
