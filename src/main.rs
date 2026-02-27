@@ -123,14 +123,14 @@ async fn inner_main() -> Result<(), WrappedErr> {
 	};
 
 	if flags.version {
-		println!("{}", env!("CARGO_PKG_VERSION"));
-		return Ok(());
+		print!("{}", env!("CARGO_PKG_VERSION"));
+		std::process::exit(0);
 	}
 
 	if let Some(ref sp) = flags.socket_path {
 		let p = sp.canonicalize().unwrap_or_else(|_| sp.clone());
-		println!("{}", tdf::ipc::socket_path(&p).display());
-		return Ok(());
+		print!("{}", tdf::ipc::socket_path(&p).display());
+		std::process::exit(0);
 	}
 
 	let Some(file) = flags.file else {
