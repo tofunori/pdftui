@@ -519,6 +519,21 @@ async fn enter_redraw_loop(
 											.args(["-c", &expanded])
 											.spawn();
 									}
+									// Show blue highlight at the synctex position (same flash as forward search)
+									if let Ok(fwd) = synctex::forward_search(result.line, 0, &result.input, &pdf_path) {
+										let _ = to_renderer.send(RenderNotif::SyncTexJump {
+											page: fwd.page,
+											h: fwd.h,
+											v: fwd.v,
+											width: fwd.width,
+											height: fwd.height
+										});
+										let clear_tx = to_renderer.clone();
+										tokio::spawn(async move {
+											tokio::time::sleep(Duration::from_secs(2)).await;
+											let _ = clear_tx.send(RenderNotif::ClearSyncTexHighlight);
+										});
+									}
 									tui.set_msg(MessageSetting::Some(BottomMessage::Error(
 										format!("SyncTeX → {}:{}", result.input, result.line)
 									)));
