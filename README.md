@@ -15,6 +15,34 @@ Designed to be performant, very responsive, and work well with even very large P
 - Responsive details about rendering/search progress
 - Reactive layout
 
+## Neovim integration
+
+`pdftui` includes a Neovim plugin (`plugin/pdftui.nvim`) for SyncTeX forward and inverse search.
+
+**Install with lazy.nvim:**
+
+```lua
+{
+  dir = "path/to/pdftui/plugin/pdftui.nvim",
+  config = function()
+    require("pdftui").setup({
+      pdf_path = nil,  -- auto-detected from .tex file
+      split = false,   -- false = open in new tab, true = split
+    })
+  end,
+}
+```
+
+**Commands:**
+
+| Command | Description |
+|---------|-------------|
+| `:PdftuiOpen [file.pdf]` | Open PDF in a new tab |
+| `:PdftuiSplit [file.pdf]` | Open PDF in a split |
+| `:PdftuiForward` | Jump to current cursor position in PDF |
+
+**Inverse search:** `Ctrl+click` on the PDF jumps to the corresponding line in Neovim.
+
 ## Installation
 
 1. Get the rust toolchain from [rustup.rs](https://rustup.rs)
