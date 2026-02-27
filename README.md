@@ -23,7 +23,7 @@ Designed to be performant, very responsive, and work well with even very large P
 
 ```lua
 {
-  dir = "path/to/pdftui/plugin/pdftui.nvim",
+  "tofunori/pdftui",
   config = function()
     require("pdftui").setup({
       pdf_path = nil,  -- auto-detected from .tex file
