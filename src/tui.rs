@@ -45,6 +45,7 @@ pub struct Tui {
 	showing_help_msg: bool,
 	is_kitty: bool,
 	zoom: Option<Zoom>,
+	pub synctex_active: bool,
 	col_w_px: u16,
 	col_h_px: u16
 }
@@ -213,6 +214,7 @@ impl Tui {
 			showing_help_msg: false,
 			is_kitty,
 			zoom: None,
+			synctex_active: false,
 			col_w_px,
 			col_h_px
 		}
@@ -385,7 +387,8 @@ impl Tui {
 				&self.rendered,
 				&self.name,
 				frame,
-				&self.bottom_msg
+				&self.bottom_msg,
+				self.synctex_active
 			);
 		}
 
@@ -637,7 +640,8 @@ impl Tui {
 		rendered: &[RenderedInfo],
 		doc_name: &str,
 		frame: &mut Frame<'_>,
-		bottom_msg: &BottomMessage
+		bottom_msg: &BottomMessage,
+		synctex_active: bool
 	) {
 		// use the extra space here to add some padding to the right side
 		let page_nums_text = format!("{} / {} ", page_num + 1, rendered.len());
@@ -678,14 +682,20 @@ impl Tui {
 		} else {
 			String::new()
 		};
+		let synctex_str = if synctex_active { "SyncTeX  " } else { "" };
 		let bottom_layout = Layout::horizontal([
 			Constraint::Fill(1),
+			Constraint::Length(synctex_str.len() as u16),
 			Constraint::Length(rendered_str.len() as u16)
 		])
 		.split(bottom_inside_block);
 
+		if synctex_active {
+			let synctex_span = Span::styled(synctex_str, Style::new().fg(Color::Green));
+			frame.render_widget(synctex_span, bottom_layout[1]);
+		}
 		let rendered_span = Span::styled(&rendered_str, Style::new().fg(Color::Cyan));
-		frame.render_widget(rendered_span, bottom_layout[1]);
+		frame.render_widget(rendered_span, bottom_layout[2]);
 
 		let (msg_str, color): (Cow<'_, str>, _) = match bottom_msg {
 			BottomMessage::Help => ("?: Show help page".into(), Color::Blue),

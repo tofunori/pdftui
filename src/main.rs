@@ -429,6 +429,7 @@ async fn inner_main() -> Result<(), WrappedErr> {
 	} else {
 		(None, None)
 	};
+	tui.synctex_active = ipc_socket_path.is_some();
 
 	let result = enter_redraw_loop(
 		ev_stream,
