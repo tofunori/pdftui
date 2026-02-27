@@ -5,7 +5,7 @@ use flume::{Sender, r#async::RecvStream, unbounded};
 use futures_util::stream::StreamExt as _;
 use ratatui::layout::Rect;
 use ratatui_image::picker::{Picker, ProtocolType};
-use tdf::{
+use pdftui::{
 	converter::{ConvertedPage, ConverterMsg, run_conversion_loop},
 	renderer::{RenderError, RenderInfo, RenderNotif, fill_default, start_rendering}
 };
@@ -13,7 +13,7 @@ use tdf::{
 pub fn handle_renderer_msg(
 	msg: Result<RenderInfo, RenderError>,
 	pages: &mut Vec<Option<ConvertedPage>>,
-	to_converter_tx: &Sender<tdf::converter::ConverterMsg>
+	to_converter_tx: &Sender<pdftui::converter::ConverterMsg>
 ) {
 	match msg {
 		Ok(RenderInfo::NumPages(num)) => {
@@ -95,7 +95,7 @@ pub fn start_rendering_loop(
 			from_main_rx,
 			cell_height_px,
 			cell_width_px,
-			tdf::PrerenderLimit::All,
+			pdftui::PrerenderLimit::All,
 			black,
 			white
 		)

@@ -22,7 +22,7 @@ pub fn socket_path(pdf_path: &Path) -> PathBuf {
 	let mut hasher = DefaultHasher::new();
 	pdf_path.hash(&mut hasher);
 	let hash = hasher.finish();
-	PathBuf::from(format!("/tmp/tdf-sync-{hash:016x}.sock"))
+	PathBuf::from(format!("/tmp/pdftui-{hash:016x}.sock"))
 }
 
 /// Remove the socket file on exit.
@@ -84,6 +84,36 @@ pub fn start_ipc_listener(
 	});
 
 	(sock, page_rx)
+}
+
+/// Connect to a running pdftui instance and send a forward search command.
+/// Returns the response string (e.g. "ok 3" or "error ...").
+pub async fn send_forward(pdf_path: &Path, line: u32, col: u32, file: &str) -> Result<String, String> {
+	let sock = socket_path(pdf_path);
+	let stream = tokio::net::UnixStream::connect(&sock)
+		.await
+		.map_err(|e| format!("cannot connect to {}: {e}", sock.display()))?;
+
+	let (reader, mut writer) = stream.into_split();
+
+	let cmd = format!("forward {line} {col} {file}\n");
+	writer
+		.write_all(cmd.as_bytes())
+		.await
+		.map_err(|e| format!("write error: {e}"))?;
+	writer
+		.shutdown()
+		.await
+		.map_err(|e| format!("shutdown error: {e}"))?;
+
+	let mut lines = BufReader::new(reader).lines();
+	let response = lines
+		.next_line()
+		.await
+		.map_err(|e| format!("read error: {e}"))?
+		.unwrap_or_default();
+
+	Ok(response.trim().to_string())
 }
 
 fn handle_ipc_line(

@@ -35,7 +35,7 @@ use ratatui_image::{
 	FontSize,
 	picker::{Picker, ProtocolType}
 };
-use tdf::{
+use pdftui::{
 	PrerenderLimit,
 	converter::{ConvertedPage, ConverterMsg, run_conversion_loop},
 	kitty::{KittyDisplay, display_kitty_images, do_shms_work, run_action},
@@ -118,6 +118,8 @@ async fn inner_main() -> Result<(), WrappedErr> {
 		optional --inverse-cmd inverse_cmd: String
 		/// Print the IPC socket path for the given PDF and exit
 		optional --socket-path socket_path: PathBuf
+		/// Forward search to a running pdftui instance: line:col:file (e.g. "42:0:main.tex")
+		optional --forward forward: String
 		/// PDF file to read
 		optional file: PathBuf
 	};
@@ -129,13 +131,29 @@ async fn inner_main() -> Result<(), WrappedErr> {
 
 	if let Some(ref sp) = flags.socket_path {
 		let p = sp.canonicalize().unwrap_or_else(|_| sp.clone());
-		print!("{}", tdf::ipc::socket_path(&p).display());
+		print!("{}", pdftui::ipc::socket_path(&p).display());
+		std::process::exit(0);
+	}
+
+	// Client mode: send forward search to a running instance and exit
+	if let Some(ref fwd) = flags.forward {
+		let pdf = flags.file.as_ref().ok_or_else(|| {
+			WrappedErr("--forward requires a PDF file argument".into())
+		})?;
+		let pdf = pdf.canonicalize().unwrap_or_else(|_| pdf.clone());
+		let (line, col, file) = parse_synctex_arg(fwd).map_err(|e| {
+			WrappedErr(format!("invalid --forward argument: {e}").into())
+		})?;
+		let response = pdftui::ipc::send_forward(&pdf, line as u32, col as u32, &file)
+			.await
+			.map_err(|e| WrappedErr(e.into()))?;
+		println!("{response}");
 		std::process::exit(0);
 	}
 
 	let Some(file) = flags.file else {
 		return Err(WrappedErr(
-			"Please specify the file to open, e.g. `tdf ./my_example_pdf.pdf`".into()
+			"Please specify the file to open, e.g. `pdftui ./my_example_pdf.pdf`".into()
 		));
 	};
 
@@ -269,7 +287,7 @@ async fn inner_main() -> Result<(), WrappedErr> {
 				Ok(Picker::from_fontsize((cell_width_px, cell_height_px)))
 			},
 			ratatui_image::errors::Errors::NoFontSize => Err(WrappedErr(
-				"Unable to detect your terminal's font size; this is an issue with your terminal emulator.\nPlease use a different terminal emulator or report this bug to tdf.".into()
+				"Unable to detect your terminal's font size; this is an issue with your terminal emulator.\nPlease use a different terminal emulator or report this bug to pdftui.".into()
 			)),
 			e => Err(WrappedErr(format!("Couldn't get the necessary information to set up images: {e}").into()))
 		})?;
@@ -401,7 +419,7 @@ async fn inner_main() -> Result<(), WrappedErr> {
 
 	// Start IPC listener if synctex file exists
 	let (ipc_page_rx, ipc_socket_path) = if synctex::has_synctex_file(&path) {
-		let (sock_path, rx) = tdf::ipc::start_ipc_listener(
+		let (sock_path, rx) = pdftui::ipc::start_ipc_listener(
 			&path,
 			to_renderer.clone(),
 			to_converter.clone()
@@ -431,7 +449,7 @@ async fn inner_main() -> Result<(), WrappedErr> {
 	.map_err(|e| {
 		WrappedErr(
 			format!(
-				"An unexpected error occurred while communicating between different parts of tdf: {e}"
+				"An unexpected error occurred while communicating between different parts of pdftui: {e}"
 			)
 			.into()
 		)
@@ -439,7 +457,7 @@ async fn inner_main() -> Result<(), WrappedErr> {
 
 	// Cleanup IPC socket
 	if let Some(sock) = ipc_socket_path {
-		tdf::ipc::cleanup_socket(&sock);
+		pdftui::ipc::cleanup_socket(&sock);
 	}
 
 	drop(maybe_logger);
@@ -457,7 +475,7 @@ async fn enter_redraw_loop(
 	mut fullscreen: bool,
 	mut tui: Tui,
 	term: &mut Terminal<CrosstermBackend<Stdout>>,
-	mut main_area: tdf::tui::RenderLayout,
+	mut main_area: pdftui::tui::RenderLayout,
 	font_size: FontSize,
 	inverse_cmd: Option<String>,
 	pdf_path: PathBuf,
@@ -503,6 +521,11 @@ async fn enter_redraw_loop(
 									}
 									tui.set_msg(MessageSetting::Some(BottomMessage::Error(
 										format!("SyncTeX → {}:{}", result.input, result.line)
+									)));
+								}
+								Err(synctex::SyncTexError::NotFound) => {
+									tui.set_msg(MessageSetting::Some(BottomMessage::Error(
+										"synctex not found (install texlive)".into()
 									)));
 								}
 								Err(e) => {
@@ -552,8 +575,14 @@ async fn enter_redraw_loop(
 			} => {
 				tui.page = ipc_page;
 				tui.set_msg(MessageSetting::Some(BottomMessage::Error(
-					format!("IPC → page {}", ipc_page + 1)
+					format!("SyncTeX → page {}", ipc_page + 1)
 				)));
+				// Auto-clear the SyncTeX highlight after 2 seconds (Skim-like flash)
+				let clear_tx = to_renderer.clone();
+				tokio::spawn(async move {
+					tokio::time::sleep(Duration::from_secs(2)).await;
+					let _ = clear_tx.send(RenderNotif::ClearSyncTexHighlight);
+				});
 			},
 		};
 

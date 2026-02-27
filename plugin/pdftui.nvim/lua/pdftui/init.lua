@@ -3,26 +3,26 @@ local M = {}
 M.config = {
 	socket_path = nil,
 	pdf_path = nil,
-	viewer_cmd = "tdf-sync",
+	viewer_cmd = "pdftui-sync",
 	split = false, -- true = cmux split, false = cmux tab
 }
 
 function M.setup(opts)
 	M.config = vim.tbl_deep_extend("force", M.config, opts or {})
 
-	vim.api.nvim_create_user_command("TdfForward", function()
+	vim.api.nvim_create_user_command("PdftuiForward", function()
 		M.forward_search()
-	end, { desc = "SyncTeX forward search to tdf viewer" })
+	end, { desc = "SyncTeX forward search to pdftui viewer" })
 
-	vim.api.nvim_create_user_command("TdfOpen", function(args)
+	vim.api.nvim_create_user_command("PdftuiOpen", function(args)
 		local pdf = args.args ~= "" and args.args or nil
 		M.open(pdf)
-	end, { nargs = "?", complete = "file", desc = "Open PDF in tdf-sync (cmux tab)" })
+	end, { nargs = "?", complete = "file", desc = "Open PDF in pdftui (cmux tab)" })
 
-	vim.api.nvim_create_user_command("TdfSplit", function(args)
+	vim.api.nvim_create_user_command("PdftuiSplit", function(args)
 		local pdf = args.args ~= "" and args.args or nil
 		M.open(pdf, true)
-	end, { nargs = "?", complete = "file", desc = "Open PDF in tdf-sync (cmux split)" })
+	end, { nargs = "?", complete = "file", desc = "Open PDF in pdftui (cmux split)" })
 end
 
 --- Auto-detect the PDF path from the current .tex file
@@ -41,7 +41,7 @@ end
 ---@param pdf string
 ---@return string|nil
 local function discover_socket(pdf)
-	local result = vim.fn.system({ "tdf", "--socket-path", pdf })
+	local result = vim.fn.system({ "pdftui", "--socket-path", pdf })
 	if vim.v.shell_error ~= 0 then
 		return nil
 	end
@@ -52,47 +52,37 @@ end
 function M.forward_search()
 	local pdf = M.config.pdf_path or detect_pdf()
 	if not pdf then
-		vim.notify("tdf-synctex: no PDF found (compile first)", vim.log.levels.ERROR)
+		vim.notify("pdftui: no PDF found (compile first)", vim.log.levels.ERROR)
 		return
 	end
 	M.config.pdf_path = pdf
-
-	local sock = M.config.socket_path or discover_socket(pdf)
-	if not sock then
-		vim.notify("tdf-synctex: cannot determine socket path", vim.log.levels.ERROR)
-		return
-	end
 
 	local line = vim.fn.line(".")
 	local col = vim.fn.col(".") - 1
 	local file = vim.fn.expand("%:p")
 
-	local cmd = string.format(
-		'echo "forward %d %d %s" | socat - UNIX-CONNECT:%s',
-		line, col, file, sock
-	)
-	vim.fn.jobstart(cmd, {
+	vim.fn.jobstart({ "pdftui", "--forward", line .. ":" .. col .. ":" .. file, pdf }, {
 		on_stderr = function(_, data)
 			local msg = table.concat(data, "\n")
 			if msg ~= "" then
-				vim.notify("tdf-synctex: " .. msg, vim.log.levels.WARN)
+				vim.notify("pdftui: " .. msg, vim.log.levels.WARN)
 			end
 		end,
 	})
 end
 
---- Open the PDF in tdf-sync via cmux (new tab or split)
+--- Open the PDF in pdftui via cmux (new tab or split)
 ---@param pdf string|nil path to the PDF (auto-detected if nil)
 ---@param split boolean|nil true for right split, false/nil for new tab
 function M.open(pdf, split)
 	pdf = pdf or M.config.pdf_path or detect_pdf()
 	if not pdf then
-		vim.notify("tdf-synctex: no PDF found", vim.log.levels.ERROR)
+		vim.notify("pdftui: no PDF found", vim.log.levels.ERROR)
 		return
 	end
 	M.config.pdf_path = pdf
 
-	local args = { "tdf-open", pdf, "--nvim-server", vim.v.servername }
+	local args = { "pdftui-open", pdf, "--nvim-server", vim.v.servername }
 	if split or M.config.split then
 		table.insert(args, "--split")
 	end

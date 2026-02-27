@@ -112,6 +112,7 @@ pub fn inverse_search(
 
 	let output = Command::new("synctex")
 		.args(["edit", "-o", &output_arg])
+		.current_dir(pdf_path.parent().unwrap_or(Path::new(".")))
 		.output()
 		.map_err(|e| {
 			if e.kind() == std::io::ErrorKind::NotFound {
@@ -127,7 +128,23 @@ pub fn inverse_search(
 	}
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
-	parse_inverse_output(&stdout)
+	let mut result = parse_inverse_output(&stdout)?;
+
+	// Canonicalize the input path: synctex may return a relative path.
+	// Resolve it relative to the PDF's directory so nvr/nvim can find the buffer.
+	let input_path = std::path::Path::new(&result.input);
+	if input_path.is_relative() {
+		if let Some(pdf_dir) = pdf_path.parent() {
+			let absolute = pdf_dir.join(input_path);
+			if let Ok(canonical) = absolute.canonicalize() {
+				result.input = canonical.to_string_lossy().into_owned();
+			} else {
+				result.input = absolute.to_string_lossy().into_owned();
+			}
+		}
+	}
+
+	Ok(result)
 }
 
 fn parse_forward_output(output: &str) -> Result<ForwardResult, SyncTexError> {

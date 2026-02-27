@@ -1,29 +1,29 @@
 [package]
-name = "tdf-viewer"
+name = "pdftui"
 version = "0.6.0-synctex.1"
 authors = ["June Welker <junewelker@gmail.com>", "Thierry Laurent-St-Pierre"]
 edition = "2024"
-description = "A terminal viewer for PDFs with SyncTeX support"
+description = "A terminal PDF viewer with SyncTeX support"
 readme = "README.md"
 homepage = "https://github.com/itsjunetime/tdf"
 repository = "https://github.com/itsjunetime/tdf"
 license = "AGPL-3.0-only"
-keywords = ["pdf", "tui", "cli", "terminal"]
+keywords = ["pdf", "tui", "cli", "terminal", "synctex"]
 categories = ["command-line-utilities", "text-processing", "visualization"]
-default-run = "tdf"
+default-run = "pdftui"
 rust-version = "1.86"
 
 [[bin]]
-name = "tdf"
+name = "pdftui"
 path = "src/main.rs"
 
 [[bin]]
-name = "tdf-sync"
+name = "pdftui-sync"
 path = "src/main.rs"
 
 # lib only exists for benching
 [lib]
-name = "tdf"
+name = "pdftui"
 
 [dependencies]
 # we're using this branch because it has significant performance fixes that I'm waiting on responses from the upstream devs to get upstreamed. See https://github.com/ratatui-org/ratatui/issues/1116

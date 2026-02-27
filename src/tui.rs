@@ -985,12 +985,16 @@ impl Tui {
 						let origin_y = self.last_render.img_origin_y;
 						let sf = self.rendered.get(self.page)
 							.map_or(1.0, |r| r.scale_factor);
+						let (offset_x, offset_y) = match self.zoom {
+							Some(ref z) => (f32::from(z.cell_pan_from_left), f32::from(z.cell_pan_from_top)),
+							None => (0.0, 0.0),
+						};
 						(sf > 0.0 && mouse.column >= origin_x && mouse.row >= origin_y)
 							.then(|| {
-								let pdf_x = f32::from(mouse.column - origin_x)
+								let pdf_x = (f32::from(mouse.column - origin_x) + offset_x)
 									* f32::from(self.col_w_px)
 									/ sf;
-								let pdf_y = f32::from(mouse.row - origin_y)
+								let pdf_y = (f32::from(mouse.row - origin_y) + offset_y)
 									* f32::from(self.col_h_px)
 									/ sf;
 								InputAction::InverseSearch {
@@ -1141,7 +1145,7 @@ f:
 ?:
     Show this page
 ctrl+z:
-    Suspend & background tdf \
+    Suspend & background pdftui \
 ";
 
 static KITTY_HELP: &str = "\

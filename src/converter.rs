@@ -128,16 +128,17 @@ pub async fn run_conversion_loop(
 						})
 						.for_each(|(_, _, px)| px.0[2] = px.0[2].saturating_sub(u8::MAX / 2));
 				}
-				// SyncTeX highlight (orange/yellow tint — boost red, reduce blue)
+				// SyncTeX highlight (Skim-like blue flash)
 				if let Some(ref rect) = page_info.synctex_rect {
 					img.par_enumerate_pixels_mut()
 						.filter(|(x, y, _)| {
-							*x > rect.ul_x && *x < rect.lr_x && *y > rect.ul_y && *y < rect.lr_y
+							*x >= rect.ul_x && *x <= rect.lr_x && *y >= rect.ul_y && *y <= rect.lr_y
 						})
 						.for_each(|(_, _, px)| {
-							px.0[0] = px.0[0].saturating_add(60);
-							px.0[1] = px.0[1].saturating_add(30);
-							px.0[2] = px.0[2].saturating_sub(100);
+							// Blend 40% toward Skim blue (#3478F6 = 52, 120, 246)
+							px.0[0] = ((u16::from(px.0[0]) * 60 + 52 * 40) / 100) as u8;
+							px.0[1] = ((u16::from(px.0[1]) * 60 + 120 * 40) / 100) as u8;
+							px.0[2] = ((u16::from(px.0[2]) * 60 + 246 * 40) / 100) as u8;
 						});
 				}
 			},

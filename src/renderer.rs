@@ -30,7 +30,9 @@ pub enum RenderNotif {
 		v: f32,
 		width: f32,
 		height: f32
-	}
+	},
+	/// Clear the SyncTeX highlight (auto-clear after flash timer).
+	ClearSyncTexHighlight
 }
 
 #[derive(Debug)]
@@ -178,6 +180,13 @@ pub fn start_rendering(
 
 		sender.send(Ok(RenderInfo::NumPages(n_pages.get())))?;
 
+		// Invalidate synctex highlight if the page no longer exists after reload
+		if let Some((page, ..)) = &synctex_highlight {
+			if *page >= n_pages.get() {
+				synctex_highlight = None;
+			}
+		}
+
 		// We're using this vec to indicate which page numbers have already been rendered, to
 		// support people jumping to specific pages and having quick rendering results. We
 		// `split_at_mut` at 0 initially (which bascially makes `right == rendered && left == []`),
@@ -282,6 +291,14 @@ pub fn start_rendering(
 								rendered[page].successful = false;
 							}
 							start_point = page;
+							continue 'render_pages;
+						}
+						RenderNotif::ClearSyncTexHighlight => {
+							if let Some((page, ..)) = synctex_highlight.take() {
+								if page < rendered.len() {
+									rendered[page].successful = false;
+								}
+							}
 							continue 'render_pages;
 						}
 					}
