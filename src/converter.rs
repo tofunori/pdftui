@@ -56,7 +56,8 @@ impl ConvertedImage {
 pub struct ConvertedPage {
 	pub page: ConvertedImage,
 	pub num: usize,
-	pub num_results: usize
+	pub num_results: usize,
+	pub scale_factor: f32
 }
 
 pub enum ConverterMsg {
@@ -118,14 +119,28 @@ pub async fn run_conversion_loop(
 		.map_err(|e| RenderError::Converting(format!("Can't load image: {e}")))?;
 
 		match dyn_img {
-			DynamicImage::ImageRgb8(ref mut img) =>
+			DynamicImage::ImageRgb8(ref mut img) => {
+				// Search result highlights (reduce blue channel)
 				for quad in &*page_info.result_rects {
 					img.par_enumerate_pixels_mut()
 						.filter(|(x, y, _)| {
 							*x > quad.ul_x && *x < quad.lr_x && *y > quad.ul_y && *y < quad.lr_y
 						})
 						.for_each(|(_, _, px)| px.0[2] = px.0[2].saturating_sub(u8::MAX / 2));
-				},
+				}
+				// SyncTeX highlight (orange/yellow tint — boost red, reduce blue)
+				if let Some(ref rect) = page_info.synctex_rect {
+					img.par_enumerate_pixels_mut()
+						.filter(|(x, y, _)| {
+							*x > rect.ul_x && *x < rect.lr_x && *y > rect.ul_y && *y < rect.lr_y
+						})
+						.for_each(|(_, _, px)| {
+							px.0[0] = px.0[0].saturating_add(60);
+							px.0[1] = px.0[1].saturating_add(30);
+							px.0[2] = px.0[2].saturating_sub(100);
+						});
+				}
+			},
 			_ => unreachable!()
 		}
 
@@ -184,7 +199,8 @@ pub async fn run_conversion_loop(
 		Ok(Some(ConvertedPage {
 			page: txt_img,
 			num: page_info.page_num,
-			num_results: page_info.result_rects.len()
+			num_results: page_info.result_rects.len(),
+			scale_factor: page_info.scale_factor
 		}))
 	}
 

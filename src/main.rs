@@ -40,6 +40,7 @@ use tdf::{
 	converter::{ConvertedPage, ConverterMsg, run_conversion_loop},
 	kitty::{KittyDisplay, display_kitty_images, do_shms_work, run_action},
 	renderer::{self, MUPDF_BLACK, MUPDF_WHITE, RenderError, RenderInfo, RenderNotif},
+	synctex,
 	tui::{BottomMessage, InputAction, MessageSetting, Tui}
 };
 
@@ -109,12 +110,26 @@ async fn inner_main() -> Result<(), WrappedErr> {
 		optional -b,--black-color black: String
 		/// Print the version and exit
 		optional --version
+		/// SyncTeX forward search: jump to the PDF position corresponding to line:col:file
+		/// (e.g. "42:0:main.tex")
+		optional --synctex-forward synctex_forward: String
+		/// Command to run on inverse search (Ctrl+click). Use {file}, {line}, {col} as placeholders.
+		/// (e.g. "nvr --remote-silent +{line} {file}")
+		optional --inverse-cmd inverse_cmd: String
+		/// Print the IPC socket path for the given PDF and exit
+		optional --socket-path socket_path: PathBuf
 		/// PDF file to read
 		optional file: PathBuf
 	};
 
 	if flags.version {
 		println!("{}", env!("CARGO_PKG_VERSION"));
+		return Ok(());
+	}
+
+	if let Some(ref sp) = flags.socket_path {
+		let p = sp.canonicalize().unwrap_or_else(|_| sp.clone());
+		println!("{}", tdf::ipc::socket_path(&p).display());
 		return Ok(());
 	}
 
@@ -300,7 +315,7 @@ async fn inner_main() -> Result<(), WrappedErr> {
 		|| "Unknown file".into(),
 		|n| n.to_string_lossy().to_string()
 	);
-	let tui = Tui::new(file_name, flags.max_wide, flags.r_to_l, is_kitty);
+	let mut tui = Tui::new(file_name, flags.max_wide, flags.r_to_l, is_kitty, cell_width_px, cell_height_px);
 
 	let backend = CrosstermBackend::new(std::io::stdout());
 	let mut term = Terminal::new(backend).map_err(|e| {
@@ -338,10 +353,66 @@ async fn inner_main() -> Result<(), WrappedErr> {
 			)
 		})?;
 
+	// Handle SyncTeX forward search if requested
+	if let Some(ref synctex_arg) = flags.synctex_forward {
+		match parse_synctex_arg(synctex_arg) {
+			Ok((line, col, input_file)) => {
+				match synctex::forward_search(line, col, &input_file, &path) {
+					Ok(result) => {
+						to_renderer
+							.send(RenderNotif::SyncTexJump {
+								page: result.page,
+								h: result.h,
+								v: result.v,
+								width: result.width,
+								height: result.height
+							})
+							.map_err(|e| {
+								WrappedErr(
+									format!("Couldn't send SyncTeX jump to renderer: {e}").into()
+								)
+							})?;
+						to_converter
+							.send(ConverterMsg::GoToPage(result.page))
+							.map_err(|e| {
+								WrappedErr(
+									format!("Couldn't send page jump to converter: {e}").into()
+								)
+							})?;
+						tui.page = result.page;
+					}
+					Err(e) => {
+						tui.set_msg(MessageSetting::Some(BottomMessage::Error(
+							format!("SyncTeX: {e}")
+						)));
+					}
+				}
+			}
+			Err(e) => {
+				return Err(WrappedErr(
+					format!("Invalid --synctex-forward argument: {e}").into()
+				));
+			}
+		}
+	}
+
 	let tui_rx = tui_rx.into_stream();
 	let from_converter = from_converter.into_stream();
 
-	enter_redraw_loop(
+	// Start IPC listener if synctex file exists
+	let (ipc_page_rx, ipc_socket_path) = if synctex::has_synctex_file(&path) {
+		let (sock_path, rx) = tdf::ipc::start_ipc_listener(
+			&path,
+			to_renderer.clone(),
+			to_converter.clone()
+		);
+		eprintln!("IPC socket: {}", sock_path.display());
+		(Some(rx.into_stream()), Some(sock_path))
+	} else {
+		(None, None)
+	};
+
+	let result = enter_redraw_loop(
 		ev_stream,
 		to_renderer,
 		tui_rx,
@@ -351,7 +422,10 @@ async fn inner_main() -> Result<(), WrappedErr> {
 		tui,
 		&mut term,
 		main_area,
-		font_size
+		font_size,
+		flags.inverse_cmd,
+		path,
+		ipc_page_rx
 	)
 	.await
 	.map_err(|e| {
@@ -361,10 +435,15 @@ async fn inner_main() -> Result<(), WrappedErr> {
 			)
 			.into()
 		)
-	})?;
+	});
+
+	// Cleanup IPC socket
+	if let Some(sock) = ipc_socket_path {
+		tdf::ipc::cleanup_socket(&sock);
+	}
 
 	drop(maybe_logger);
-	Ok(())
+	result
 }
 
 // oh shut up clippy who cares
@@ -379,7 +458,10 @@ async fn enter_redraw_loop(
 	mut tui: Tui,
 	term: &mut Terminal<CrosstermBackend<Stdout>>,
 	mut main_area: tdf::tui::RenderLayout,
-	font_size: FontSize
+	font_size: FontSize,
+	inverse_cmd: Option<String>,
+	pdf_path: PathBuf,
+	mut ipc_page_rx: Option<flume::r#async::RecvStream<'_, usize>>
 ) -> Result<(), Box<dyn Error>> {
 	loop {
 		let mut needs_redraw = true;
@@ -405,6 +487,30 @@ async fn enter_redraw_loop(
 						InputAction::Fullscreen => fullscreen = !fullscreen,
 						InputAction::SwitchRenderZoom(f_or_f) => {
 							to_renderer.send(RenderNotif::SwitchFitOrFill(f_or_f)).unwrap();
+						},
+						InputAction::InverseSearch { page, pdf_x, pdf_y } => {
+							// synctex edit uses 1-based pages
+							match synctex::inverse_search(page + 1, pdf_x, pdf_y, &pdf_path) {
+								Ok(result) => {
+									if let Some(ref cmd) = inverse_cmd {
+										let expanded = cmd
+											.replace("{file}", &result.input)
+											.replace("{line}", &result.line.to_string())
+											.replace("{col}", &result.column.to_string());
+										let _ = std::process::Command::new("sh")
+											.args(["-c", &expanded])
+											.spawn();
+									}
+									tui.set_msg(MessageSetting::Some(BottomMessage::Error(
+										format!("SyncTeX → {}:{}", result.input, result.line)
+									)));
+								}
+								Err(e) => {
+									tui.set_msg(MessageSetting::Some(BottomMessage::Error(
+										format!("SyncTeX inverse: {e}")
+									)));
+								}
+							}
 						}
 					}
 				}
@@ -429,14 +535,25 @@ async fn enter_redraw_loop(
 			}
 			Some(img_res) = from_converter.next() => {
 				match img_res {
-					Ok(ConvertedPage { page, num, num_results }) => {
-						tui.page_ready(page, num, num_results);
+					Ok(ConvertedPage { page, num, num_results, scale_factor }) => {
+						tui.page_ready(page, num, num_results, scale_factor);
 						if num == tui.page {
 							needs_redraw = true;
 						}
 					},
 					Err(e) => tui.show_error(e),
 				}
+			},
+			Some(ipc_page) = async {
+				match ipc_page_rx {
+					Some(ref mut rx) => rx.next().await,
+					None => std::future::pending().await,
+				}
+			} => {
+				tui.page = ipc_page;
+				tui.set_msg(MessageSetting::Some(BottomMessage::Error(
+					format!("IPC → page {}", ipc_page + 1)
+				)));
 			},
 		};
 
@@ -611,4 +728,28 @@ fn get_font_size_through_stdio() -> Result<(u16, u16), WrappedErr> {
 	})?;
 
 	Ok((w, h))
+}
+
+/// Parse a synctex forward argument in the format "line:col:file" or "line:file"
+fn parse_synctex_arg(arg: &str) -> Result<(usize, usize, String), String> {
+	// Try line:col:file first
+	let parts: Vec<&str> = arg.splitn(3, ':').collect();
+	match parts.len() {
+		3 => {
+			let line = parts[0]
+				.parse::<usize>()
+				.map_err(|e| format!("invalid line number: {e}"))?;
+			let col = parts[1]
+				.parse::<usize>()
+				.map_err(|e| format!("invalid column number: {e}"))?;
+			Ok((line, col, parts[2].to_string()))
+		}
+		2 => {
+			let line = parts[0]
+				.parse::<usize>()
+				.map_err(|e| format!("invalid line number: {e}"))?;
+			Ok((line, 0, parts[1].to_string()))
+		}
+		_ => Err("expected format line:col:file or line:file".into())
+	}
 }

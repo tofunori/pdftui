@@ -1,9 +1,9 @@
 [package]
 name = "tdf-viewer"
-version = "0.5.0"
-authors = ["June Welker <junewelker@gmail.com>"]
+version = "0.6.0-synctex.1"
+authors = ["June Welker <junewelker@gmail.com>", "Thierry Laurent-St-Pierre"]
 edition = "2024"
-description = "A terminal viewer for PDFs"
+description = "A terminal viewer for PDFs with SyncTeX support"
 readme = "README.md"
 homepage = "https://github.com/itsjunetime/tdf"
 repository = "https://github.com/itsjunetime/tdf"
@@ -15,6 +15,10 @@ rust-version = "1.86"
 
 [[bin]]
 name = "tdf"
+path = "src/main.rs"
+
+[[bin]]
+name = "tdf-sync"
 path = "src/main.rs"
 
 # lib only exists for benching
@@ -32,7 +36,7 @@ crossterm = { version = "0.29.0", features = ["event-stream"] }
 # crossterm = { path = "../crossterm", features = ["event-stream"] }
 image = { version = "0.25.1", features = ["pnm", "rayon", "png"], default-features = false }
 notify = { version = "8.0.0", features = ["crossbeam-channel"] }
-tokio = { version = "1.37.0", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.37.0", features = ["rt-multi-thread", "macros", "net", "io-util", "process"] }
 futures-util = { version = "0.3.30", default-features = false }
 flume = { version = "0.12.0", default-features = false, features = ["async"] }
 xflags = "0.4.0-pre.2"

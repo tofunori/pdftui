@@ -1,7 +1,7 @@
 use std::{borrow::Cow, io::stdout, num::NonZeroUsize};
 
 use crossterm::{
-	event::{Event, KeyCode, KeyModifiers, MouseEventKind},
+	event::{Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind},
 	execute,
 	terminal::{
 		BeginSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
@@ -44,7 +44,9 @@ pub struct Tui {
 	page_constraints: PageConstraints,
 	showing_help_msg: bool,
 	is_kitty: bool,
-	zoom: Option<Zoom>
+	zoom: Option<Zoom>,
+	col_w_px: u16,
+	col_h_px: u16
 }
 
 #[derive(Default)]
@@ -53,7 +55,9 @@ struct LastRender {
 	// diffing work
 	rect: Rect,
 	pages_shown: usize,
-	unused_width: u16
+	unused_width: u16,
+	img_origin_x: u16,
+	img_origin_y: u16
 }
 
 #[derive(Default)]
@@ -178,7 +182,8 @@ pub struct RenderedInfo {
 	// we haven't checked this page yet
 	// Also this isn't the most efficient representation of this value, but it's accurate, so like
 	// whatever I guess
-	num_results: Option<usize>
+	num_results: Option<usize>,
+	scale_factor: f32
 }
 
 #[derive(PartialEq)]
@@ -189,7 +194,14 @@ pub struct RenderLayout {
 
 impl Tui {
 	#[must_use]
-	pub fn new(name: String, max_wide: Option<NonZeroUsize>, r_to_l: bool, is_kitty: bool) -> Self {
+	pub fn new(
+		name: String,
+		max_wide: Option<NonZeroUsize>,
+		r_to_l: bool,
+		is_kitty: bool,
+		col_w_px: u16,
+		col_h_px: u16
+	) -> Self {
 		Self {
 			name,
 			page: 0,
@@ -200,7 +212,9 @@ impl Tui {
 			page_constraints: PageConstraints { max_wide, r_to_l },
 			showing_help_msg: false,
 			is_kitty,
-			zoom: None
+			zoom: None,
+			col_w_px,
+			col_h_px
 		}
 	}
 
@@ -411,7 +425,9 @@ impl Tui {
 				self.last_render = LastRender {
 					rect: size,
 					pages_shown: 1,
-					unused_width: 0
+					unused_width: 0,
+					img_origin_x: img_area.x,
+					img_origin_y: img_area.y
 				};
 				return Self::render_zoomed(
 					img_area, font_size, zoom, img, self.page, cell_w, cell_h
@@ -476,6 +492,9 @@ impl Tui {
 					img_area.y += unused_height / 2;
 				}
 			}
+
+			self.last_render.img_origin_x = img_area.x;
+			self.last_render.img_origin_y = img_area.y;
 
 			let to_display = page_sizes
 				.into_iter()
@@ -571,7 +590,13 @@ impl Tui {
 		self.page = self.page.min(n_pages - 1);
 	}
 
-	pub fn page_ready(&mut self, img: ConvertedImage, page_num: usize, num_results: usize) {
+	pub fn page_ready(
+		&mut self,
+		img: ConvertedImage,
+		page_num: usize,
+		num_results: usize,
+		scale_factor: f32
+	) {
 		// If this new image woulda fit within the available space on the last render AND it's
 		// within the range where it might've been rendered with the last shown pages, then reset
 		// the last rect marker so that all images are forced to redraw on next render and this one
@@ -593,7 +618,8 @@ impl Tui {
 		// number of pages, so the vec will already be cleared
 		self.rendered[page_num] = RenderedInfo {
 			img: Some(img),
-			num_results: Some(num_results)
+			num_results: Some(num_results),
+			scale_factor
 		};
 	}
 
@@ -952,6 +978,28 @@ impl Tui {
 					MouseEventKind::ScrollDown => handle_scroll(Direction::Down),
 					MouseEventKind::ScrollLeft => handle_scroll(Direction::Left),
 					MouseEventKind::ScrollUp => handle_scroll(Direction::Up),
+					MouseEventKind::Down(MouseButton::Left)
+						if mouse.modifiers.contains(KeyModifiers::CONTROL) =>
+					{
+						let origin_x = self.last_render.img_origin_x;
+						let origin_y = self.last_render.img_origin_y;
+						let sf = self.rendered.get(self.page)
+							.map_or(1.0, |r| r.scale_factor);
+						(sf > 0.0 && mouse.column >= origin_x && mouse.row >= origin_y)
+							.then(|| {
+								let pdf_x = f32::from(mouse.column - origin_x)
+									* f32::from(self.col_w_px)
+									/ sf;
+								let pdf_y = f32::from(mouse.row - origin_y)
+									* f32::from(self.col_h_px)
+									/ sf;
+								InputAction::InverseSearch {
+									page: self.page,
+									pdf_x,
+									pdf_y
+								}
+							})
+					}
 					_ => None
 				}
 			}
@@ -1120,7 +1168,8 @@ pub enum InputAction {
 	Invert,
 	Rotate,
 	Fullscreen,
-	SwitchRenderZoom(crate::FitOrFill)
+	SwitchRenderZoom(crate::FitOrFill),
+	InverseSearch { page: usize, pdf_x: f32, pdf_y: f32 }
 }
 
 #[derive(Copy, Clone)]

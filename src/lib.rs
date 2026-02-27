@@ -10,9 +10,11 @@ pub enum PrerenderLimit {
 }
 
 pub mod converter;
+pub mod ipc;
 pub mod kitty;
 pub mod renderer;
 pub mod skip;
+pub mod synctex;
 pub mod tui;
 
 #[derive(Copy, Clone, PartialEq, Debug)]

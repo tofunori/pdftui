@@ -21,7 +21,16 @@ pub enum RenderNotif {
 	SwitchFitOrFill(FitOrFill),
 	Reload,
 	Invert,
-	Rotate
+	Rotate,
+	/// SyncTeX forward search jump: navigate to page and highlight a region.
+	/// Coordinates are in PDF points (72 dpi), relative to page top-left.
+	SyncTexJump {
+		page: usize,
+		h: f32,
+		v: f32,
+		width: f32,
+		height: f32
+	}
 }
 
 #[derive(Debug)]
@@ -50,7 +59,11 @@ pub enum RotateDirection {
 pub struct PageInfo {
 	pub img_data: ImageData,
 	pub page_num: usize,
-	pub result_rects: Vec<HighlightRect>
+	pub result_rects: Vec<HighlightRect>,
+	/// Optional SyncTeX highlight rectangle (distinct from search highlights)
+	pub synctex_rect: Option<HighlightRect>,
+	/// Scale factor from PDF points to pixels (used for inverse search)
+	pub scale_factor: f32
 }
 
 #[derive(Clone)]
@@ -112,6 +125,9 @@ pub fn start_rendering(
 	let mut fit_or_fill = FitOrFill::Fit;
 
 	let mut need_rerender = VecDeque::new();
+
+	// SyncTeX highlight: (page, h, v, width, height) in PDF points
+	let mut synctex_highlight: Option<(usize, f32, f32, f32, f32)> = None;
 
 	'reload: loop {
 		let doc = match Document::open(path) {
@@ -260,6 +276,14 @@ pub fn start_rendering(
 							}
 							continue 'render_pages;
 						}
+						RenderNotif::SyncTexJump { page, h, v, width, height } => {
+							synctex_highlight = Some((page, h, v, width, height));
+							if page < rendered.len() {
+								rendered[page].successful = false;
+							}
+							start_point = page;
+							continue 'render_pages;
+						}
 					}
 				}};
 			}
@@ -343,6 +367,18 @@ pub fn start_rendering(
 						rendered.num_search_found = Some(ctx.result_rects.len());
 						rendered.successful = true;
 
+						// Build SyncTeX highlight rect if this page has one
+						let synctex_rect = synctex_highlight
+							.filter(|(p, _, _, _, _)| *p == page_num)
+							.map(|(_, sh, sv, sw, sheight)| {
+								HighlightRect {
+									ul_x: (sh * ctx.scale_factor) as u32,
+									ul_y: ((sv - sheight) * ctx.scale_factor) as u32,
+									lr_x: ((sh + sw) * ctx.scale_factor) as u32,
+									lr_y: (sv * ctx.scale_factor) as u32
+								}
+							});
+
 						sender.send(Ok(RenderInfo::Page(PageInfo {
 							img_data: ImageData {
 								pixels,
@@ -350,7 +386,9 @@ pub fn start_rendering(
 								cell_h: (ctx.surface_h / f32::from(col_h)) as u16
 							},
 							page_num,
-							result_rects: ctx.result_rects
+							result_rects: ctx.result_rects,
+							synctex_rect,
+							scale_factor: ctx.scale_factor
 						})))?;
 					}
 					// And if we got an error, then obviously we need to propagate that
@@ -466,6 +504,7 @@ struct RenderedContext {
 	pixmap: Pixmap,
 	surface_w: f32,
 	surface_h: f32,
+	scale_factor: f32,
 	result_rects: Vec<HighlightRect>
 }
 
@@ -552,6 +591,7 @@ fn render_single_page_to_ctx(
 		pixmap,
 		surface_w,
 		surface_h,
+		scale_factor,
 		result_rects
 	})
 }
