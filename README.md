@@ -17,18 +17,30 @@ Designed to be performant, very responsive, and work well with even very large P
 
 ## Installation
 
-**Prerequisites:** install the [Rust toolchain](https://rustup.rs). On Linux, also install `libfontconfig` and `clang`:
+**Option 1 — Pre-built binaries (no Rust required)**
+
+Download the latest release for your platform from [Releases](https://github.com/tofunori/pdftui/releases):
+
+| Platform | File |
+|----------|------|
+| macOS Apple Silicon | `pdftui-macos-arm64.tar.gz` |
+| macOS Intel | `pdftui-macos-x86_64.tar.gz` |
+| Linux x86_64 | `pdftui-linux-x86_64.tar.gz` |
 
 ```bash
-# Debian/Ubuntu
-sudo apt install libfontconfig1-dev clang
+tar xzf pdftui-macos-arm64.tar.gz
+mv pdftui pdftui-sync ~/.local/bin/
 ```
 
-Then install the two binaries:
+**Option 2 — Build from source**
+
+Install the [Rust toolchain](https://rustup.rs), then:
 
 ```bash
 cargo install --git https://github.com/tofunori/pdftui.git --bin pdftui --bin pdftui-sync
 ```
+
+On Linux, also install `libfontconfig1-dev` and `clang` first.
 
 To use with `epub` or `cbz` files, add `--features epub`, `--features cbz`, or `--features cbz,epub`.
 
