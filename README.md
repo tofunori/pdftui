@@ -1,6 +1,6 @@
 # `pdftui`
 
-A terminal-based PDF viewer with SyncTeX support.
+A terminal-based PDF viewer with SyncTeX support for Neovim.
 
 Designed to be performant, very responsive, and work well with even very large PDFs. Built with [`ratatui`](https://github.com/ratatui-org/ratatui).
 
@@ -15,11 +15,29 @@ Designed to be performant, very responsive, and work well with even very large P
 - Responsive details about rendering/search progress
 - Reactive layout
 
+## Installation
+
+**Prerequisites:** install the [Rust toolchain](https://rustup.rs) and the system dependency `mupdf`. On Linux, also install `libfontconfig` and `clang`.
+
+```bash
+# macOS
+brew install mupdf
+
+# Debian/Ubuntu
+sudo apt install libmupdf-dev libfontconfig1-dev clang
+```
+
+Then install the two binaries:
+
+```bash
+cargo install --git https://github.com/tofunori/pdftui.git --bin pdftui --bin pdftui-sync
+```
+
+To use with `epub` or `cbz` files, add `--features epub`, `--features cbz`, or `--features cbz,epub`.
+
 ## Neovim integration
 
-`pdftui` includes a Neovim plugin (`plugin/pdftui.nvim`) for SyncTeX forward and inverse search.
-
-**Install with lazy.nvim:**
+Add to your lazy.nvim config:
 
 ```lua
 {
@@ -43,24 +61,15 @@ Designed to be performant, very responsive, and work well with even very large P
 
 **Inverse search:** `Ctrl+click` on the PDF jumps to the corresponding line in Neovim.
 
-## Installation
-
-1. Get the rust toolchain from [rustup.rs](https://rustup.rs)
-2. Run `cargo install --git https://github.com/tofunori/pdftui.git`
-
-If you want to use this with `epub`s or `cbz`s, add `--features epub` or `--features cbz` to the command line (or `--features cbz,epub` for both)
-
 ## To Build
 
-First, install the system dependencies — generally `libfontconfig` and `clang`. On Linux these show up as `libfontconfig1-devel` or `libfontconfig-dev` and `clang` in your package manager.
+```bash
+git clone https://github.com/tofunori/pdftui.git
+cd pdftui
+cargo build --release
+```
 
-If a dependency is missing, the build will fail and tell you what's needed.
-
-1. Get the rust toolchain from [rustup.rs](https://rustup.rs)
-2. Clone the repo and `cd` into it
-3. Run `cargo build --release`
-
-The binary will be at `./target/release/pdftui`.
+Binaries will be at `./target/release/pdftui` and `./target/release/pdftui-sync`.
 
 ## Can I contribute?
 
