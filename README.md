@@ -17,14 +17,11 @@ Designed to be performant, very responsive, and work well with even very large P
 
 ## Installation
 
-**Prerequisites:** install the [Rust toolchain](https://rustup.rs) and the system dependency `mupdf`. On Linux, also install `libfontconfig` and `clang`.
+**Prerequisites:** install the [Rust toolchain](https://rustup.rs). On Linux, also install `libfontconfig` and `clang`:
 
 ```bash
-# macOS
-brew install mupdf
-
 # Debian/Ubuntu
-sudo apt install libmupdf-dev libfontconfig1-dev clang
+sudo apt install libfontconfig1-dev clang
 ```
 
 Then install the two binaries:
